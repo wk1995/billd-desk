@@ -20,6 +20,7 @@ import {
 } from '@/interface';
 import router, { routerName } from '@/router';
 import { useAppStore } from '@/store/app';
+import { usePiniaCacheStore } from '@/store/cache';
 import { useNetworkStore } from '@/store/network';
 import { useUserStore } from '@/store/user';
 import { LiveRoomTypeEnum } from '@/types/ILiveRoom';
@@ -244,12 +245,23 @@ export const useWebsocket = () => {
   function sendJoin() {
     const instance = networkStore.wsMap.get(roomId.value);
     if (!instance) return;
+    // 兜底：remote 页面没有往这里的 deskUserUuid/deskUserPassword 回填设备信息，
+    // 若直接发空值，服务端会回 joined 但不会把 socket 登记到该设备代码下，
+    // 导致主控端查询时一直显示“该设备不在线”。
+    const cacheStore = usePiniaCacheStore();
+    const joinUuid = deskUserUuid.value || cacheStore.deskUserUuid || '';
+    const joinPwd =
+      deskUserPassword.value || cacheStore.deskUserPassword || '';
+    if (!joinUuid) {
+      console.error('【websocket】join 失败：deskUserUuid 为空');
+      return;
+    }
     instance.send<WsBilldDeskJoinType['data']>({
       requestId: getRandomString(8),
       msgType: WsMsgTypeEnum.billdDeskJoin,
       data: {
-        deskUserUuid: deskUserUuid.value,
-        deskUserPassword: deskUserPassword.value,
+        deskUserUuid: joinUuid,
+        deskUserPassword: joinPwd,
         live_room_id: roomId.value,
       },
     });
