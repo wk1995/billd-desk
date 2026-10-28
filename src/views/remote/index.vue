@@ -234,6 +234,18 @@
       </div>
 
       <div>
+        <span>join状态：</span>
+        <span
+          class="link"
+          @click="handleCopy(deskJoinState)"
+        >
+          {{ deskJoinState }}
+        </span>
+        <span>，ws状态：</span>
+        <span>{{ connectStatus }}</span>
+      </div>
+
+      <div>
         <span>调试地址：</span>
         <input
           v-model="debugUrl"
@@ -280,6 +292,7 @@ import { useAppStore } from '@/store/app';
 import { usePiniaCacheStore } from '@/store/cache';
 import { useNetworkStore } from '@/store/network';
 import {
+  DeskJoinStateEnum,
   WsBilldDeskBehaviorType,
   WsBilldDeskStartRemote,
   WsBilldDeskStartRemoteResult,
@@ -301,6 +314,7 @@ import {
   setAudioTrackContentHints,
   setVideoTrackContentHints,
 } from '@/utils';
+import { deskLog, maskDeskUser } from '@/utils/desk-debug';
 import { WebRTCClass } from '@/utils/network/webRTC';
 import PwdModalCpt from '@/views/remote/pwdModal.vue';
 
@@ -311,7 +325,7 @@ const cacheStore = usePiniaCacheStore();
 
 const { updateWebRtcRemoteDeskConfig, webRtcRemoteDesk } =
   useWebRtcRemoteDesk();
-const { initWs, connectStatus } = useWebsocket();
+const { initWs, connectStatus, deskJoinState } = useWebsocket();
 const {
   maxBitrate,
   maxFramerate,
@@ -607,27 +621,56 @@ function handleInitIpcRendererOn() {
 }
 
 async function initDeskUser() {
+  deskJoinState.value = DeskJoinStateEnum.preparingUser;
   try {
-    if (!cacheStore.deskUserUuid || !cacheStore.deskUserPassword) {
+    const hasCache = !!(cacheStore.deskUserUuid && cacheStore.deskUserPassword);
+    deskLog('initDeskUser 开始', {
+      mode: hasCache ? 'login' : 'create',
+      ...maskDeskUser(cacheStore.deskUserUuid, cacheStore.deskUserPassword),
+    });
+    if (!hasCache) {
       const res = await fetchDeskUserCreate();
+      deskLog('create 设备结果', { code: res.code, message: res.message });
       if (res.code === 200) {
         cacheStore.deskUserUuid = res.data.uuid!;
         cacheStore.deskUserPassword = res.data.password!;
         originalPassword.value = res.data.password!;
         roomId.value = cacheStore.deskUserUuid;
+        deskJoinState.value = DeskJoinStateEnum.userReady;
+      } else {
+        deskJoinState.value = DeskJoinStateEnum.prepareUserFailed;
       }
     } else {
       const res = await fetchDeskUserLogin({
         uuid: cacheStore.deskUserUuid,
         password: cacheStore.deskUserPassword,
       });
+      deskLog('login 设备结果', {
+        code: res.code,
+        message: res.message,
+        ...maskDeskUser(cacheStore.deskUserUuid, cacheStore.deskUserPassword),
+      });
       if (res.code === 200) {
         originalPassword.value = cacheStore.deskUserPassword;
         roomId.value = cacheStore.deskUserUuid;
+        deskJoinState.value = DeskJoinStateEnum.userReady;
+      } else {
+        deskJoinState.value = DeskJoinStateEnum.prepareUserFailed;
       }
     }
+    deskLog('initDeskUser 完成', {
+      roomId: roomId.value || '(空)',
+      state: deskJoinState.value,
+      hint: roomId.value
+        ? '设备信息就绪，接下来看 socket 是否 connected、是否 joined'
+        : '设备信息未就绪，initWs/sendJoin 必然失败，需检查 /desk_user/create 与 /desk_user/login',
+    });
   } catch (error) {
-    console.log(error);
+    deskJoinState.value = DeskJoinStateEnum.prepareUserFailed;
+    deskLog('initDeskUser 异常（login 校验不通过会走到这里）', {
+      error: String(error),
+      ...maskDeskUser(cacheStore.deskUserUuid, cacheStore.deskUserPassword),
+    });
   }
 }
 
@@ -917,6 +960,11 @@ async function startRemote() {
   try {
     loading.value = true;
     const res = await fetchFindReceiverByUuid(cacheStore.remoteDeskUserUuid);
+    deskLog('查询设备是否在线（find_receiver_by_uuid）', {
+      uuid: cacheStore.remoteDeskUserUuid,
+      code: res.code,
+      receiver: res.data?.receiver || '(空)',
+    });
     if (res.code === 200) {
       if (res.data.receiver !== '') {
         const old = cacheStore.linkDeviceList.find(
@@ -930,6 +978,11 @@ async function startRemote() {
           showPwdModalCpt.value = true;
         }
       } else {
+        deskLog('设备不在线：服务端没有该设备代码对应的 socket 登记', {
+          uuid: cacheStore.remoteDeskUserUuid,
+          selfUuid: cacheStore.deskUserUuid,
+          hint: '先确认被控端「此设备」显示的代码是否就是这个；若一致，再看被控端 [desk-debug] 日志是否停在 joined',
+        });
         window.$message.info('该设备不在线');
         setTimeout(() => {
           loading.value = false;

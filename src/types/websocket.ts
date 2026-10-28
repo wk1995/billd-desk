@@ -24,6 +24,36 @@ export enum WsConnectStatusEnum {
   connect = 'connect',
 }
 
+/**
+ * 被控端上线状态机
+ *
+ * 排查「该设备不在线」时按这个顺序对照 [desk-debug] 日志：
+ * idle → preparingUser → userReady → wsConnecting → wsConnected → joinSent → joined
+ * 任一环节停在 prepareUserFailed / joinFailed 就说明设备代码没能登记到服务端。
+ */
+export enum DeskJoinStateEnum {
+  /** 未开始 */
+  idle = 'idle',
+  /** 正在创建/校验设备信息（create / login） */
+  preparingUser = 'preparing-user',
+  /** 设备信息准备失败（login 失败或 uuid 为空） */
+  prepareUserFailed = 'prepare-user-failed',
+  /** 设备信息就绪，roomId 已确定 */
+  userReady = 'user-ready',
+  /** websocket 连接中 */
+  wsConnecting = 'ws-connecting',
+  /** websocket 已连接，准备发送 join */
+  wsConnected = 'ws-connected',
+  /** websocket 已断开 */
+  wsDisconnected = 'ws-disconnected',
+  /** 已发送 join，等待服务端回 joined */
+  joinSent = 'join-sent',
+  /** 服务端已回 joined，此时主控端应能查到该设备 */
+  joined = 'joined',
+  /** join 未能发出（socket 不存在或 deskUserUuid 为空） */
+  joinFailed = 'join-failed',
+}
+
 /** websocket消息类型 */
 export enum WsMsgTypeEnum {
   /** 用户进入聊天 */

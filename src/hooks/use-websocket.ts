@@ -26,6 +26,7 @@ import { useUserStore } from '@/store/user';
 import { LiveRoomTypeEnum } from '@/types/ILiveRoom';
 import { IUser } from '@/types/IUser';
 import {
+  DeskJoinStateEnum,
   IDanmu,
   WSGetRoomAllUserType,
   WSLivePkKeyType,
@@ -47,6 +48,7 @@ import {
   WsUpdateJoinInfoType,
 } from '@/types/websocket';
 import { createNullVideo, handleUserMedia } from '@/utils';
+import { deskLog, maskDeskUser } from '@/utils/desk-debug';
 import { getWssUrl } from '@/utils/localStorage/app';
 import {
   WebSocketClass,
@@ -71,6 +73,8 @@ export const useWebsocket = () => {
     useWebRtcMeetingOne();
 
   const connectStatus = ref<WsConnectStatusEnum>();
+  /** 被控端上线状态机，排查「该设备不在线」时按 DeskJoinStateEnum 顺序对照日志 */
+  const deskJoinState = ref<DeskJoinStateEnum>(DeskJoinStateEnum.idle);
   const loopHeartbeatTimer = ref();
   const loopGetLiveUserTimer = ref();
   const liveUserList = ref<ILiveUser[]>([]);
@@ -244,18 +248,35 @@ export const useWebsocket = () => {
 
   function sendJoin() {
     const instance = networkStore.wsMap.get(roomId.value);
-    if (!instance) return;
+    if (!instance) {
+      deskJoinState.value = DeskJoinStateEnum.joinFailed;
+      deskLog('sendJoin 跳过：wsMap 里没有该 roomId 的实例', {
+        roomId: roomId.value || '(空)',
+        wsMapKeys: Array.from(networkStore.wsMap.keys()),
+      });
+      return;
+    }
     // 兜底：remote 页面没有往这里的 deskUserUuid/deskUserPassword 回填设备信息，
     // 若直接发空值，服务端会回 joined 但不会把 socket 登记到该设备代码下，
     // 导致主控端查询时一直显示“该设备不在线”。
     const cacheStore = usePiniaCacheStore();
     const joinUuid = deskUserUuid.value || cacheStore.deskUserUuid || '';
-    const joinPwd =
-      deskUserPassword.value || cacheStore.deskUserPassword || '';
+    const joinPwd = deskUserPassword.value || cacheStore.deskUserPassword || '';
     if (!joinUuid) {
-      console.error('【websocket】join 失败：deskUserUuid 为空');
+      deskJoinState.value = DeskJoinStateEnum.joinFailed;
+      deskLog('sendJoin 失败：deskUserUuid 为空，服务端不会登记在线', {
+        liveRoomId: roomId.value || '(空)',
+        ...maskDeskUser(joinUuid, joinPwd),
+      });
       return;
     }
+    deskJoinState.value = DeskJoinStateEnum.joinSent;
+    deskLog('发送 billdDeskJoin', {
+      ...maskDeskUser(joinUuid, joinPwd),
+      liveRoomId: roomId.value,
+      uuidFrom: deskUserUuid.value ? 'useWebsocket' : 'pinia-cache',
+      socketId: instance.socketIo?.id || '(空)',
+    });
     instance.send<WsBilldDeskJoinType['data']>({
       requestId: getRandomString(8),
       msgType: WsMsgTypeEnum.billdDeskJoin,
@@ -278,6 +299,12 @@ export const useWebsocket = () => {
       connectStatus.value = WsConnectStatusEnum.connect;
       ws.status = WsConnectStatusEnum.connect;
       ws.update();
+      deskJoinState.value = DeskJoinStateEnum.wsConnected;
+      deskLog('socket 已连接，准备 join', {
+        socketId: ws.socketIo?.id || '(空)',
+        url: ws.url,
+        roomId: roomId.value || '(空)',
+      });
       sendJoin();
     });
 
@@ -289,6 +316,22 @@ export const useWebsocket = () => {
       connectStatus.value = WsConnectStatusEnum.disconnect;
       ws.status = WsConnectStatusEnum.disconnect;
       ws.update();
+      deskJoinState.value = DeskJoinStateEnum.wsDisconnected;
+      deskLog('socket 已断开，服务端将不再认为该设备在线', {
+        url: ws.url,
+        reason: String(err || ''),
+        roomId: roomId.value || '(空)',
+      });
+    });
+
+    // websocket连接失败（地址不通、被代理拦截、服务端未启动等）
+    ws.socketIo.on('connect_error', (err: Error) => {
+      deskJoinState.value = DeskJoinStateEnum.wsConnecting;
+      deskLog('socket 连接失败，正在重试', {
+        url: ws.url,
+        name: err?.name || '',
+        message: err?.message || '',
+      });
     });
 
     // 收到livePkKey
@@ -658,6 +701,12 @@ export const useWebsocket = () => {
         appStore.setLiveRoomInfo(data.live_room);
         anchorInfo.value = data.anchor_info;
         joinedReceiver.value = data.receiver!;
+        deskJoinState.value = DeskJoinStateEnum.joined;
+        deskLog('服务端已确认 joined，此时主控端应能查到该设备', {
+          liveRoomId: data.live_room_id || roomId.value || '(空)',
+          receiver: data.receiver || '(空)',
+          socketId: ws.socketIo?.id || '(空)',
+        });
       }
     );
 
@@ -843,9 +892,22 @@ export const useWebsocket = () => {
     if (data.currentResolutionRatio) {
       currentResolutionRatio.value = data.currentResolutionRatio;
     }
+    const wsUrl = getWssUrl() || WEBSOCKET_URL;
+    deskJoinState.value = DeskJoinStateEnum.wsConnecting;
+    deskLog('initWs 开始连接', {
+      roomId: roomId.value || '(空)',
+      url: wsUrl,
+      isRemoteDesk: !!data.isRemoteDesk,
+      ...maskDeskUser(deskUserUuid.value, deskUserPassword.value),
+    });
+    if (!roomId.value) {
+      deskLog('initWs 警告：roomId 为空，设备代码未准备好，join 必然失败', {
+        ...maskDeskUser(deskUserUuid.value, deskUserPassword.value),
+      });
+    }
     new WebSocketClass({
       roomId: roomId.value,
-      url: getWssUrl() || WEBSOCKET_URL,
+      url: wsUrl,
       isAnchor: data.isAnchor,
     });
     initReceive();
@@ -861,6 +923,7 @@ export const useWebsocket = () => {
     remoteDeskUserUuid,
     remoteDeskUserPassword,
     connectStatus,
+    deskJoinState,
     mySocketId,
     canvasVideoStream,
     lastCoverImg,

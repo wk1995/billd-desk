@@ -10,3 +10,4 @@ electron-dist
 .workbuddy/*.log
 .workbuddy/*.pid
 .workbuddy/*.zip
+.workbuddy/memory/
