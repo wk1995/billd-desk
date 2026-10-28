@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { platform } from 'process';
 
@@ -20,6 +21,22 @@ import type { nutjsTs } from './types';
 import type { IIpcRendererData } from '../src/pure-interface';
 
 const nutjs: nutjsTs = require('@nut-tree-fork/nut-js');
+
+const lifeLogPath = path.join(__dirname, '../.workbuddy/electron-life.log');
+function life(message: string) {
+  const line = `${new Date().toISOString()} pid=${process.pid} ${message}\n`;
+  try {
+    fs.mkdirSync(path.dirname(lifeLogPath), { recursive: true });
+    fs.appendFileSync(lifeLogPath, line);
+  } catch (error) {
+    console.log('life-log-failed', error);
+  }
+  console.log(line.trim());
+}
+
+life(
+  `boot argv=${JSON.stringify(process.argv)} ppid=${process.ppid} electron=${process.versions.electron} node=${process.version}`
+);
 
 // 该版本electron所对应的node版本
 console.log('process.version', process.version);
@@ -47,9 +64,11 @@ process.env.VITE_PUBLIC = app.isPackaged
   : path.join(process.env.DIST, '../public');
 
 if (!app.requestSingleInstanceLock()) {
+  life('single-instance-lock-failed quit');
   app.quit();
   process.exit(0);
 }
+life('single-instance-lock-ok');
 
 const windowNormalParams = { width: 800, height: 500 };
 let winBounds: Electron.Rectangle | null;
@@ -98,6 +117,7 @@ async function createWindow({
       devTools: true,
       // nodeIntegration: true, // 在网页中集成Node
       preload: path.join(__dirname, 'preload.mjs'),
+      webSecurity: false,
     },
     frame,
   });
@@ -126,6 +146,7 @@ async function createWindow({
     );
   }
   win.on('close', () => {
+    life(`window-close id=${windowId}`);
     console.log('close', windowId);
     winWebContentsSend({
       windowId,
@@ -136,6 +157,7 @@ async function createWindow({
     });
   });
   win.on('closed', () => {
+    life(`window-closed id=${windowId}`);
     console.log('closed', windowId);
     win.removeAllListeners();
     windowMap.delete(windowId);
@@ -182,6 +204,8 @@ function main() {
       // devTools: true,
       // nodeIntegration: true, // 在网页中集成Node
       preload: path.join(__dirname, 'preload.mjs'),
+      // 开发时页面在 localhost，接口在 Mac 本机后端，需要跨域
+      webSecurity: false,
     },
     frame: false,
   });
@@ -195,6 +219,7 @@ function main() {
   windowMap.set(mainWindowId, mainWindow);
 
   mainWindow.on('close', () => {
+    life('mainWindow-close');
     console.log('mainWindow-close');
     windowMap.forEach((item) => {
       if (!item?.isDestroyed()) {
@@ -205,6 +230,7 @@ function main() {
     windowMap.clear();
   });
   mainWindow.on('closed', () => {
+    life('mainWindow-closed');
     console.log('mainWindow-closed');
     windowMap.forEach((item) => {
       if (!item?.isDestroyed()) {
@@ -1240,6 +1266,7 @@ function main() {
 }
 
 app.on('ready', () => {
+  life('app-ready');
   powerMonitor.on('suspend', () => {
     windowMap.forEach((item) => {
       const windowId = item.id;
@@ -1265,11 +1292,70 @@ app.on('ready', () => {
     });
   });
   main();
+  life('main-window-created');
+  let beat = 0;
+  setInterval(() => {
+    beat += 1;
+    const wins = BrowserWindow.getAllWindows().map((item) => ({
+      id: item.id,
+      destroyed: item.isDestroyed(),
+      visible: item.isVisible(),
+    }));
+    life(`heartbeat n=${beat} windows=${JSON.stringify(wins)}`);
+  }, 5000);
 });
 
 app.on('window-all-closed', () => {
-  app.quit();
+  life(`window-all-closed devServer=${process.env.VITE_DEV_SERVER_URL || ''}`);
+  console.log('window-all-closed');
+  // 开发时关掉窗口不要连带退出 Vite，否则窗口会一闪就没
+  if (!process.env.VITE_DEV_SERVER_URL) {
+    life('window-all-closed calling app.quit');
+    app.quit();
+  }
   windowMap.clear();
 });
+
+app.on('before-quit', () => {
+  life('before-quit');
+  console.log('before-quit');
+});
+
+app.on('will-quit', () => {
+  life('will-quit');
+});
+
+app.on('quit', (_event, code) => {
+  life(`app-quit code=${code}`);
+});
+
+app.on('child-process-gone', (_event, details) => {
+  life(`child-process-gone ${JSON.stringify(details)}`);
+});
+
+app.on('render-process-gone', (_event, _webContents, details) => {
+  life(`render-process-gone ${JSON.stringify(details)}`);
+});
+
+process.on('exit', (code) => {
+  life(`process-exit code=${code}`);
+  console.log('process-exit', code);
+});
+
+process.on('uncaughtException', (error) => {
+  life(`uncaughtException ${error?.stack || error}`);
+  console.log('uncaughtException', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  life(`unhandledRejection ${error}`);
+  console.log('unhandledRejection', error);
+});
+
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(signal, () => {
+    life(`signal ${signal}`);
+  });
+}
 
 // app.whenReady().then(main);

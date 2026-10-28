@@ -26,35 +26,14 @@ export const APP_BUILD_INFO = process.env
 
 export const NODE_ENV = process.env.NODE_ENV;
 
-export const COTURN_URL = `turn:hk.${prodDomain}`;
+// Mac 本机后端（Tailscale）。字段名虽叫 wss，实际使用 ws://。
+const LOCAL_BACKEND_HOST = '100.70.34.72';
 
-// ======本地调试=====
+export const COTURN_URL = `turn:${LOCAL_BACKEND_HOST}:3478`;
 
-// const LOCALHOST_IP = '192.168.1.101:4300';
+export const WEBSOCKET_URL = `ws://${LOCAL_BACKEND_HOST}:4300`;
 
-// export const WEBSOCKET_URL =
-//   process.env.NODE_ENV === 'development'
-//     ? `ws://localhost:4300`
-//     : `ws://${LOCALHOST_IP}`;
-
-// export const AXIOS_BASEURL =
-//   process.env.NODE_ENV === 'development' ? `/api` : `http://${LOCALHOST_IP}`;
-
-// ======本地调试=====
-
-// ======线上正式=====
-
-export const WEBSOCKET_URL =
-  process.env.NODE_ENV === 'development'
-    ? `ws://localhost:4300`
-    : `wss://srs-pull.${prodDomain}`;
-
-export const AXIOS_BASEURL =
-  process.env.NODE_ENV === 'development'
-    ? `/api`
-    : `https://api-live.${prodDomain}`;
-
-// ======线上正式=====
+export const AXIOS_BASEURL = `http://${LOCAL_BACKEND_HOST}:4300`;
 
 export const COOKIE_DOMAIN =
   process.env.NODE_ENV === 'development' ? undefined : `.${prodDomain}`;

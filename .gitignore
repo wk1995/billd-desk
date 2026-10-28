@@ -7,3 +7,6 @@ auto-imports.d.ts
 deploy
 electron-release
 electron-dist
+.workbuddy/*.log
+.workbuddy/*.pid
+.workbuddy/*.zip

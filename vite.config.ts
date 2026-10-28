@@ -27,11 +27,8 @@ export default defineConfig(({ mode }) => {
         return './';
       }
     } else {
-      if (isProduction) {
-        return 'dist';
-      } else {
-        return './';
-      }
+      // Electron 用 loadFile 打开本地文件，base 必须是相对路径，否则脚本请求 /dist 会白屏
+      return './';
     }
   };
 
@@ -70,13 +67,25 @@ export default defineConfig(({ mode }) => {
       electron({
         main: {
           entry: 'electron-main/index.ts', // 主进程文件
+          onstart({ startup }) {
+            // 默认 on('exit', process.exit) 会在关掉窗口时把 Vite 一起杀掉
+            startup(['.', '--no-sandbox'], {
+              stdio: 'inherit',
+            }).then(() => {
+              process.electronApp?.removeAllListeners('exit');
+              process.electronApp?.on('exit', (code) => {
+                console.log(`electron exited: ${code}`);
+              });
+            });
+          },
           vite: {
             build: {
               outDir: 'electron-dist',
+              // package.json 是 "type": "module"，插件默认会编成 ESM，Electron 主进程加载会直接崩
               lib: {
-                entry: 'electron-main/index.ts', // 主进程文件
+                entry: 'electron-main/index.ts',
                 formats: ['cjs'],
-                fileName: () => '[name].cjs',
+                fileName: () => 'index.cjs',
               },
             },
           },
@@ -135,7 +144,7 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       proxy: {
         '/api': {
-          target: 'http://localhost:4300',
+          target: 'http://100.70.34.72:4300',
           secure: false, // 默认情况下（secure: true），不接受在HTTPS上运行的带有无效证书的后端服务器。设置secure: false后，后端服务器的HTTPS有无效证书也可运行
           /**
            * changeOrigin，是否修改请求地址的源
@@ -146,7 +155,7 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api/, '/'),
         },
         '/betaapi': {
-          target: 'http://localhost:4300',
+          target: 'http://100.70.34.72:4300',
           secure: false, // 默认情况下（secure: true），不接受在HTTPS上运行的带有无效证书的后端服务器。设置secure: false后，后端服务器的HTTPS有无效证书也可运行
           /**
            * changeOrigin，是否修改请求地址的源
