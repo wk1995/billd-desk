@@ -24,8 +24,11 @@
           <td>{{ number(row.bitrateKbps) }}</td>
           <td>{{ number(row.fps) }}</td>
           <td>
-            {{ row.codec || '—' }} {{ row.limitation || ''
-            }}<span v-if="row.framesDropped !== undefined">
+            {{ row.codec || '—' }} {{ row.limitation || '' }}
+            <span v-if="row.averageQp !== undefined">
+              QP {{ number(row.averageQp) }}</span
+            >
+            <span v-if="row.framesDropped !== undefined">
               丢帧 {{ row.framesDropped }}</span
             >
           </td>

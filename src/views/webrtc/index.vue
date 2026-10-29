@@ -1,5 +1,8 @@
 <template>
-  <div class="webrtc-wrap">
+  <div
+    class="webrtc-wrap"
+    :class="{ 'native-size': displayMode === 'native' }"
+  >
     <div
       ref="dragEl"
       class="drag"
@@ -149,6 +152,15 @@
           />
           <div class="link-item">
             <n-space>
+              <div class="link-label">显示：</div>
+              <n-radio-group v-model:value="displayMode">
+                <n-radio value="fit">适应窗口</n-radio>
+                <n-radio value="native">原始像素 1:1</n-radio>
+              </n-radio-group>
+            </n-space>
+          </div>
+          <div class="link-item">
+            <n-space>
               <div class="link-label">视频内容：</div>
               <n-radio-group v-model:value="currentVideoContentHint">
                 <n-radio
@@ -179,7 +191,11 @@
             <n-space>
               <div class="link-label">分辨率：</div>
               <div class="item">
-                {{ videoSettings?.width + 'x' + videoSettings?.height }}
+                {{
+                  receivedVideoStats?.width && receivedVideoStats?.height
+                    ? `${receivedVideoStats.width}×${receivedVideoStats.height}`
+                    : '—'
+                }}
               </div>
             </n-space>
           </div>
@@ -187,7 +203,7 @@
             <n-space>
               <div class="link-label">帧率：</div>
               <div class="item">
-                {{ videoSettings?.frameRate?.toFixed(2) }}
+                {{ receivedVideoStats?.fps?.toFixed(1) ?? '—' }}
               </div>
             </n-space>
           </div>
@@ -352,12 +368,17 @@ const rtcLoss = computed(() => {
 });
 
 const initVideo = ref(true);
+const displayMode = ref<'fit' | 'native'>('fit');
+watch(displayMode, () => {
+  videoList.value.forEach((video) => handleVideoElSize(video));
+});
 const clickNum = ref(0);
-const loopGetSettingsTimer = ref();
 const loopReconnectTimer = ref();
-const videoSettings = ref<MediaTrackSettings>();
 const actualVideoStats = computed(() =>
   Array.from(networkStore.rtcMap.values()).flatMap((rtc) => rtc.videoStats)
+);
+const receivedVideoStats = computed(() =>
+  actualVideoStats.value.find((metric) => metric.stage === '接收')
 );
 const actualDisplay = computed(() => {
   // rtcMap 每秒更新，随统计刷新实际渲染尺寸和缩放倍数。
@@ -524,7 +545,6 @@ function init() {
     isAnchor: false,
     isRemoteDesk: true,
   });
-  loopGetSettings();
 }
 
 watch(
@@ -696,18 +716,6 @@ function handleInitIpcRendererSend() {}
 
 function handleInitIpcRendererOn() {}
 
-function loopGetSettings() {
-  clearInterval(loopGetSettingsTimer.value);
-  loopGetSettingsTimer.value = setInterval(() => {
-    networkStore.rtcMap
-      .get(receiverId.value)
-      ?.localStream?.getVideoTracks()
-      .forEach((item) => {
-        videoSettings.value = item.getSettings();
-      });
-  }, 1000);
-}
-
 function handleMouseWheel(event: WheelEvent) {
   if (isWatchMode.value) return;
   event.preventDefault();
@@ -818,6 +826,7 @@ function handleVideoElSize(videoEl, setWindowBounds = false) {
       height: clientHeight,
     },
     videoEl,
+    mode: displayMode.value,
   });
 
   if (res.width && res.height && setWindowBounds) {
@@ -1113,6 +1122,13 @@ function handleMouseUp(event: MouseEvent) {
   overflow: hidden;
   width: 100vw;
   height: 100vh;
+  &.native-size {
+    overflow: auto;
+    .remote-video {
+      max-width: none;
+      max-height: none;
+    }
+  }
   .drag {
     position: fixed;
     z-index: 999;

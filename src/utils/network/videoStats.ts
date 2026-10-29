@@ -8,11 +8,13 @@ export interface VideoMetric {
   codec?: string;
   limitation?: string;
   framesDropped?: number;
+  averageQp?: number;
 }
 export interface VideoSample {
   timestamp: number;
   bytes?: number;
   frames?: number;
+  qpSum?: number;
 }
 
 /** RTP 累计计数差分；首个样本和计数重置时不伪造速率。 */
@@ -46,6 +48,7 @@ export function collectVideoMetrics(
         : undefined;
     const byteRate = rate(bytes, before?.bytes);
     const frameRate = rate(frames, before?.frames);
+    const qpRate = rate(report.qpSum, before?.qpSum);
     metrics.push({
       id: report.id,
       stage: outgoing ? '发送' : '接收',
@@ -56,8 +59,15 @@ export function collectVideoMetrics(
       codec: stats.get(report.codecId)?.mimeType,
       limitation: outgoing ? report.qualityLimitationReason : undefined,
       framesDropped: outgoing ? undefined : report.framesDropped,
+      averageQp:
+        frameRate && qpRate !== undefined ? qpRate / frameRate : undefined,
     });
-    previous.set(report.id, { timestamp: report.timestamp, bytes, frames });
+    previous.set(report.id, {
+      timestamp: report.timestamp,
+      bytes,
+      frames,
+      qpSum: report.qpSum,
+    });
     activeIds.add(report.id);
   });
   previous.forEach((_, id) => {

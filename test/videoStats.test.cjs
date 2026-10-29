@@ -78,3 +78,17 @@ test('counter resets and duplicate timestamps do not produce fake rates', () => 
   collectVideoMetrics(new Map(), previous);
   assert.equal(previous.size, 0);
 });
+
+test('QP is averaged over newly encoded frames and absent on an idle sample', () => {
+  const previous = new Map();
+  const first = sample(1000, 0, 0);
+  first.get('video').qpSum = 0;
+  collectVideoMetrics(first, previous);
+  const next = sample(2000, 750000, 30);
+  next.get('video').qpSum = 900;
+  assert.ok(
+    Math.abs(collectVideoMetrics(next, previous)[0].averageQp - 30) < 1e-9
+  );
+  next.get('video').timestamp = 3000;
+  assert.equal(collectVideoMetrics(next, previous)[0].averageQp, undefined);
+});

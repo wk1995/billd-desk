@@ -4,6 +4,8 @@ import { computeBox, getRangeRandom } from 'billd-utils';
 import sparkMD5 from 'spark-md5';
 
 import { IIpcRendererData } from '@/interface';
+import type { VideoDisplayMode } from '@/utils/network/videoSize';
+import { videoDisplaySize } from '@/utils/network/videoSize';
 
 export const ipcRenderer = window.electronAPI?.ipcRenderer;
 
@@ -627,10 +629,13 @@ export const createVideo = ({
   return videoEl;
 };
 
+const videoResizeHandlers = new WeakMap<HTMLVideoElement, () => void>();
+
 export function videoFullBox(data: {
   wrapSize: { width: number; height: number };
   videoEl: HTMLVideoElement;
   videoResize?: (data: { w: number; h: number }) => void;
+  mode?: VideoDisplayMode;
 }) {
   const { videoEl } = data;
   let wrapSize = data.wrapSize;
@@ -648,14 +653,14 @@ export function videoFullBox(data: {
     setVideoSize({ width: w, height: h });
   }
   function setVideoSize({ width, height }) {
-    const res = computeBox({
+    const res = videoDisplaySize(
       width,
       height,
-      maxHeight: wrapSize.height,
-      minHeight: wrapSize.height,
-      maxWidth: wrapSize.width,
-      minWidth: wrapSize.width,
-    });
+      wrapSize.width,
+      wrapSize.height,
+      window.devicePixelRatio || 1,
+      data.mode || 'fit'
+    );
     videoEl.style.width = `${res.width as number}px`;
     videoEl.style.height = `${res.height as number}px`;
     videoEl.setAttribute('resolution-width', width);
@@ -663,6 +668,9 @@ export function videoFullBox(data: {
   }
   setVideoSize({ width: w, height: h });
   data.videoResize?.({ w, h });
+  const previousHandler = videoResizeHandlers.get(videoEl);
+  if (previousHandler) videoEl.removeEventListener('resize', previousHandler);
+  videoResizeHandlers.set(videoEl, handleResize);
   videoEl.addEventListener('resize', handleResize);
   function changeWrapSize(data: { width; height }) {
     wrapSize = data;
