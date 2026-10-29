@@ -8,6 +8,10 @@ import { WsCandidateType, WsMsgTypeEnum } from '@/types/websocket';
 
 import { getCoturnUrl } from '../localStorage/app';
 
+import { collectVideoMetrics } from './videoStats';
+
+import type { VideoMetric, VideoSample } from './videoStats';
+
 export class WebRTCClass {
   roomId = '';
   sender = '';
@@ -21,7 +25,7 @@ export class WebRTCClass {
   dataChannel: RTCDataChannel | null = null;
   cbDataChannel: RTCDataChannel | null = null;
 
-  /** 最大码率 */
+  /** 最大码率（kbps），只在调用 RTCRtpSender 时换算成 bps */
   maxBitrate = -1;
   /** 最大帧率 */
   maxFramerate = -1;
@@ -37,6 +41,9 @@ export class WebRTCClass {
   rtt = -1;
 
   loopGetStatsTimer: any = null;
+  lastQualityLogAt = 0;
+  videoStats: VideoMetric[] = [];
+  videoSamples = new Map<string, VideoSample>();
 
   constructor(data: {
     roomId: string;
@@ -74,10 +81,37 @@ export class WebRTCClass {
   }
 
   loopGetStats = () => {
+    if (this.loopGetStatsTimer) return;
     this.loopGetStatsTimer = setInterval(async () => {
       if (!this.peerConnection) return;
       try {
         const res = await this.peerConnection.getStats();
+        this.videoStats = collectVideoMetrics(res, this.videoSamples);
+        if (this.deskUserUuid && Date.now() - this.lastQualityLogAt >= 5000) {
+          this.lastQualityLogAt = Date.now();
+          res.forEach((report) => {
+            if (report.type === 'outbound-rtp' && report.kind === 'video') {
+              console.warn(
+                '[desk-debug] 实际发送画面',
+                JSON.stringify({
+                  width: report.frameWidth,
+                  height: report.frameHeight,
+                  fps: report.framesPerSecond,
+                  framesEncoded: report.framesEncoded,
+                  bytesSent: report.bytesSent,
+                  qualityLimitationReason: report.qualityLimitationReason,
+                  targetBitrateBps: report.targetBitrate,
+                  configuredBitrateKbps: this.maxBitrate,
+                  codec: res.get(report.codecId)?.mimeType,
+                  capture: this.peerConnection
+                    ?.getSenders()
+                    .find((sender) => sender.track?.kind === 'video')
+                    ?.track?.getSettings(),
+                })
+              );
+            }
+          });
+        }
         // 总丢包率（音频丢包和视频丢包）
         let loss = 0;
         let rtt = 0;
@@ -144,35 +178,58 @@ export class WebRTCClass {
   };
 
   /** 设置最大码率 */
-  setMaxBitrate = (maxBitrate: number) => {
+  setMaxBitrate = async (maxBitrate: number): Promise<number> => {
     console.log('开始设置最大码率', maxBitrate);
-    return new Promise<number>((resolve) => {
-      this.peerConnection?.getSenders().forEach((sender) => {
-        if (sender.track?.kind === 'video') {
-          const parameters = { ...sender.getParameters() };
-          if (parameters.encodings[0]) {
-            const val = 1000 * maxBitrate;
-            if (parameters.encodings[0].maxBitrate === val) {
-              console.log('最大码率不变，不设置');
-              resolve(1);
-              return;
+    if (!Number.isFinite(maxBitrate) || maxBitrate <= 0) return 0;
+    const senders = this.peerConnection
+      ?.getSenders()
+      .filter((sender) => sender.track?.kind === 'video');
+    if (!senders?.length) return 0;
+    try {
+      const results = await Promise.all(
+        senders.map(async (sender) => {
+          const parameters = sender.getParameters();
+          if (!parameters.encodings?.length) return false;
+          const bitrateBps = 1000 * maxBitrate;
+          // 桌面文字优先保留分辨率，让拥塞控制通过帧率调整适应带宽。
+          const keepResolution = Boolean(this.deskUserUuid);
+          const unchanged = parameters.encodings.every(
+            (encoding) => encoding.maxBitrate === bitrateBps
+          );
+          if (
+            !unchanged ||
+            (keepResolution &&
+              parameters.degradationPreference !== 'maintain-resolution')
+          ) {
+            parameters.encodings.forEach((encoding) => {
+              encoding.maxBitrate = bitrateBps;
+            });
+            if (keepResolution) {
+              parameters.degradationPreference = 'maintain-resolution';
             }
-            parameters.encodings[0].maxBitrate = val;
-            sender
-              .setParameters(parameters)
-              .then(() => {
-                console.log('设置最大码率成功', maxBitrate);
-                this.maxBitrate = val;
-                resolve(1);
-              })
-              .catch((error) => {
-                console.error('设置最大码率失败', maxBitrate, error);
-                resolve(0);
-              });
+            await sender.setParameters(parameters);
           }
-        }
-      });
-    });
+          return true;
+        })
+      );
+      if (!results.every(Boolean)) return 0;
+      this.maxBitrate = maxBitrate;
+      console.log('设置最大码率成功', maxBitrate);
+      if (this.deskUserUuid) {
+        console.warn('[desk-debug] 发送端编码参数已应用', {
+          maxBitrateKbps: maxBitrate,
+          senders: senders.map((sender) => ({
+            settings: sender.track?.getSettings(),
+            encodings: sender.getParameters().encodings,
+            degradationPreference: sender.getParameters().degradationPreference,
+          })),
+        });
+      }
+      return 1;
+    } catch (error) {
+      console.error('设置最大码率失败', maxBitrate, error);
+      return 0;
+    }
   };
 
   /** 创建offer */
@@ -447,6 +504,7 @@ export class WebRTCClass {
           type: 'warn',
         });
         if (connectionState === 'connected') {
+          this.loopGetStats();
           // 表示每一个 ICE 连接要么正在使用（connected 或 completed 状态），要么已被关闭（closed 状态）；并且，至少有一个连接处于 connected 或 completed 状态。
           this.prettierLog({
             msg: 'connectionState:connected',
@@ -586,6 +644,10 @@ export class WebRTCClass {
 
   /** 手动关闭webrtc连接 */
   close = () => {
+    clearInterval(this.loopGetStatsTimer);
+    this.loopGetStatsTimer = null;
+    this.videoStats = [];
+    this.videoSamples.clear();
     try {
       console.warn(
         '手动关闭webrtc连接',

@@ -199,6 +199,11 @@
             断开
           </span>
         </div>
+        <RtcQualityCpt
+          v-for="[peer, connection] in networkStore.rtcMap"
+          :key="peer"
+          :metrics="connection.videoStats"
+        />
       </div>
     </div>
 
@@ -279,6 +284,7 @@ import {
   fetchDeskUserUpdateByUuid,
   fetchFindReceiverByUuid,
 } from '@/api/deskUser';
+import RtcQualityCpt from '@/components/rtcQuality/index.vue';
 import { WINDOW_ID_ENUM } from '@/constant';
 import { IPC_EVENT } from '@/event';
 import { useIpcRendererSend } from '@/hooks/use-ipcRendererSend';
@@ -910,7 +916,9 @@ async function handleConfirm(pwd: string) {
                 receiverId: receiverId.value,
                 maxBitrate: currentMaxBitrate.value,
                 maxFramerate: currentMaxFramerate.value,
-                resolutionRatio: resolveResolutionRatio(currentResolutionRatio.value),
+                resolutionRatio: resolveResolutionRatio(
+                  currentResolutionRatio.value
+                ),
                 audioContentHint: currentAudioContentHint.value,
                 videoContentHint: currentVideoContentHint.value,
               },
@@ -935,7 +943,9 @@ async function handleConfirm(pwd: string) {
                 receiverId: receiverId.value,
                 maxBitrate: currentMaxBitrate.value,
                 maxFramerate: currentMaxFramerate.value,
-                resolutionRatio: resolveResolutionRatio(currentResolutionRatio.value),
+                resolutionRatio: resolveResolutionRatio(
+                  currentResolutionRatio.value
+                ),
                 audioContentHint: currentAudioContentHint.value,
                 videoContentHint: currentVideoContentHint.value,
               },

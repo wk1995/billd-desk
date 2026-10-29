@@ -75,7 +75,12 @@ export function recommendBitrate(height: number) {
   return 1500;
 }
 
-/** 设置约束 */
+const captureSizes = new WeakMap<
+  MediaStreamTrack,
+  { width: number; height: number }
+>();
+
+/** 设置约束，保留屏幕宽高比，避免仅设置高度后浏览器重新选择宽度。 */
 export async function handlConstraints(data: {
   frameRate: number;
   height: number;
@@ -86,9 +91,25 @@ export async function handlConstraints(data: {
   console.log('开始设置约束', JSON.stringify({ height, frameRate }));
   stream.getTracks().forEach((track) => {
     if (track.kind === 'video') {
+      const settings = track.getSettings();
+      let source = captureSizes.get(track);
+      if (!source && settings.width && settings.height) {
+        source = { width: settings.width, height: settings.height };
+        captureSizes.set(track, source);
+      }
+      const targetHeight = source
+        ? Math.min(height > 0 ? height : source.height, source.height)
+        : height;
+      const targetWidth = source
+        ? Math.max(
+            2,
+            Math.round((source.width * targetHeight) / source.height / 2) * 2
+          )
+        : undefined;
       queue.push(
         track.applyConstraints({
-          height: { ideal: height },
+          width: targetWidth ? { exact: targetWidth } : undefined,
+          height: targetHeight > 0 ? { exact: targetHeight } : undefined,
           frameRate: { ideal: frameRate },
         })
       );

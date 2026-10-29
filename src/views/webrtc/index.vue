@@ -143,6 +143,10 @@
               </n-radio-group>
             </n-space>
           </div>
+          <RtcQualityCpt
+            :metrics="actualVideoStats"
+            :display="actualDisplay"
+          />
           <div class="link-item">
             <n-space>
               <div class="link-label">视频内容：</div>
@@ -249,6 +253,7 @@ import {
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
+import RtcQualityCpt from '@/components/rtcQuality/index.vue';
 import { ENGLISH_LETTER, NUT_KEY_MAP, WINDOW_ID_ENUM } from '@/constant';
 import { IPC_EVENT } from '@/event';
 import { useIpcRendererSend } from '@/hooks/use-ipcRendererSend';
@@ -351,6 +356,21 @@ const clickNum = ref(0);
 const loopGetSettingsTimer = ref();
 const loopReconnectTimer = ref();
 const videoSettings = ref<MediaTrackSettings>();
+const actualVideoStats = computed(() =>
+  Array.from(networkStore.rtcMap.values()).flatMap((rtc) => rtc.videoStats)
+);
+const actualDisplay = computed(() => {
+  // rtcMap 每秒更新，随统计刷新实际渲染尺寸和缩放倍数。
+  const rtc = Array.from(networkStore.rtcMap.values())[0];
+  if (!rtc?.videoStats.length || !rtc.videoEl.videoWidth) return '等待视频';
+  const video = rtc.videoEl;
+  const rect = video.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.round(rect.width * ratio);
+  const height = Math.round(rect.height * ratio);
+  const scale = Math.max(width / video.videoWidth, height / video.videoHeight);
+  return `${width}×${height} 物理像素，缩放 ${scale.toFixed(2)}×（大于 1 为放大）`;
+});
 
 onMounted(() => {
   console.log('webrtc页面');
