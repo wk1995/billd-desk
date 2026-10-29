@@ -1123,23 +1123,41 @@ function main() {
       const { windowId } = data;
       const win = windowMap.get(Number(windowId));
       if (win) {
-        const inputSources = await desktopCapturer.getSources({
-          types: ['screen'],
-        });
-        const res: any[] = [];
-        Object.keys(inputSources).forEach((key) => {
-          const source = inputSources[key];
-          if (!res.length) {
-            res.push(source);
-          }
-        });
-        winWebContentsSend({
-          windowId,
-          channel: IPC_EVENT.response_getScreenStream,
-          requestId,
-          data: { stream: res[0] },
-          code: 0,
-        });
+        try {
+          const inputSources = await desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: { width: 0, height: 0 },
+          });
+          const primary = screen.getPrimaryDisplay();
+          const source =
+            inputSources.find(
+              (item) => item.display_id === String(primary.id)
+            ) || inputSources[0];
+          if (!source) throw new Error('未找到可采集的屏幕');
+          const display =
+            screen
+              .getAllDisplays()
+              .find((item) => String(item.id) === source.display_id) || primary;
+          const width = Math.round(display.size.width * display.scaleFactor);
+          const height = Math.round(display.size.height * display.scaleFactor);
+          console.log('[desk-debug] 原始屏幕尺寸', { width, height });
+          winWebContentsSend({
+            windowId,
+            channel: IPC_EVENT.response_getScreenStream,
+            requestId,
+            data: { stream: { id: source.id, width, height } },
+            code: 0,
+          });
+        } catch (error) {
+          winWebContentsSend({
+            windowId,
+            channel: IPC_EVENT.response_getScreenStream,
+            requestId,
+            data: {},
+            code: 1,
+            msg: error instanceof Error ? error.message : '屏幕采集失败',
+          });
+        }
       }
     }
   );

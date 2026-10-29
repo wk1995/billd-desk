@@ -617,7 +617,7 @@ function responseGetScreenStream(_event, data: IIpcRendererData) {
     return;
   }
   chromeMediaSourceId.value = data.data.stream.id;
-  handleDesktopStream(data.data.stream.id);
+  handleDesktopStream(data.data.stream);
 }
 
 function handleInitIpcRendererOn() {
@@ -779,20 +779,32 @@ function handleWsMsg() {
   );
 }
 
-async function handleDesktopStream(chromeMediaSourceId) {
+async function handleDesktopStream(source: {
+  id: string;
+  width?: number;
+  height?: number;
+}) {
   try {
+    deskLog('开始采集原始屏幕', { width: source.width, height: source.height });
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
         // @ts-ignore
         mandatory: {
           chromeMediaSource: 'desktop',
-          chromeMediaSourceId,
+          chromeMediaSourceId: source.id,
+          minWidth: source.width,
+          maxWidth: source.width,
+          minHeight: source.height,
+          maxHeight: source.height,
         },
       },
     });
+    deskLog('原始屏幕采集结果', { ...stream.getVideoTracks()[0]?.getSettings() });
     anchorStream.value = stream;
   } catch (error) {
+    deskLog('原始屏幕采集失败', { error: String(error) });
+    window.$message.error('屏幕采集失败，请检查屏幕录制权限及采集日志');
     console.log(error);
   }
 }
