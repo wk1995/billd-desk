@@ -36,16 +36,25 @@ export const useWebRtcRemoteDesk = () => {
       videoEl: HTMLVideoElement;
       deskUserUuid: string;
       remoteDeskUserUuid: string;
+      maxBitrate?: number;
+      maxFramerate?: number;
+      resolutionRatio?: number;
     }) => {
+      // 这三个值必须真正传给 WebRTCClass：
+      // 之前是注释掉的，被控端永远用浏览器默认码率，高分辨率会被编码器压回低分辨率，画面就糊。
+      const maxBitrate = data.maxBitrate ?? currentMaxBitrate.value;
+      const maxFramerate = data.maxFramerate ?? currentMaxFramerate.value;
+      const resolutionRatio =
+        data.resolutionRatio ?? currentResolutionRatio.value;
       console.log({
-        maxBitrate: currentMaxBitrate.value,
-        maxFramerate: currentMaxFramerate.value,
-        resolutionRatio: currentResolutionRatio.value,
+        maxBitrate,
+        maxFramerate,
+        resolutionRatio,
       });
       return new WebRTCClass({
-        // maxBitrate: currentMaxBitrate.value,
-        // maxFramerate: currentMaxFramerate.value,
-        // resolutionRatio: currentResolutionRatio.value,
+        maxBitrate,
+        maxFramerate,
+        resolutionRatio,
         isSRS: false,
         roomId: roomId.value,
         videoEl: data.videoEl,

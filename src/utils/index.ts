@@ -36,6 +36,45 @@ export function ipcRendererOff(channel, cb) {
   ipcRenderer?.removeListener(channel, cb);
 }
 
+/** 分辨率档位，与 useRTCParams 里的 resolutionRatio 选项保持一致 */
+export const RESOLUTION_PRESETS = [360, 540, 720, 1080, 1440, 2160];
+
+/**
+ * 解析分辨率选择值。
+ *
+ * 值为 0 表示「自适应」：按当前窗口的物理像素高度（css 高度 × devicePixelRatio）
+ * 匹配最接近的档位。用物理像素是为了避免高分屏下把视频放大显示导致发虚。
+ */
+export function resolveResolutionRatio(value: number | string) {
+  const num = Number(value) || 0;
+  if (num > 0) return num;
+  // 注意：remote 页面跑在 800×500 的小窗口里，远控窗口才是全屏，
+  // 所以要按屏幕可用高度算，不能按当前窗口高度算。
+  const cssHeight =
+    window.screen?.availHeight ||
+    window.innerHeight ||
+    document.documentElement.clientHeight ||
+    1080;
+  const target = Math.round(cssHeight * (window.devicePixelRatio || 1));
+  return RESOLUTION_PRESETS.reduce((prev, cur) =>
+    Math.abs(cur - target) < Math.abs(prev - target) ? cur : prev
+  );
+}
+
+/**
+ * 根据分辨率高度给出够用的码率（kbps）。
+ *
+ * 分辨率越高需要的码率越高，否则编码器会为了压住码率主动降分辨率/糊化，
+ * 表现就是「选了 2160P 反而更糊」。
+ */
+export function recommendBitrate(height: number) {
+  if (height >= 2160) return 8000;
+  if (height >= 1440) return 6000;
+  if (height >= 1080) return 4000;
+  if (height >= 720) return 2500;
+  return 1500;
+}
+
 /** 设置约束 */
 export async function handlConstraints(data: {
   frameRate: number;

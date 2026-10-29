@@ -311,6 +311,8 @@ import {
   ipcRendererInvoke,
   ipcRendererOn,
   ipcRendererSend,
+  recommendBitrate,
+  resolveResolutionRatio,
   setAudioTrackContentHints,
   setVideoTrackContentHints,
 } from '@/utils';
@@ -337,7 +339,8 @@ const { handleScreen, handleRtcBilldDeskBehavior } = useIpcRendererSend();
 
 const currentMaxBitrate = ref(maxBitrate.value[3].value);
 const currentMaxFramerate = ref(maxFramerate.value[4].value);
-const currentResolutionRatio = ref(resolutionRatio.value[3].value);
+// 0 = 自适应：发送前按当前窗口尺寸换算成具体档位
+const currentResolutionRatio = ref(0);
 const currentVideoContentHint = ref(videoContentHint.value[3].value);
 const currentAudioContentHint = ref(audioContentHint.value[0].value);
 const rtc = ref<WebRTCClass>();
@@ -367,6 +370,18 @@ const mySocketId = computed(() => {
 onUnmounted(() => {
   clearInterval(loopBilldDeskUpdateUserTimer.value);
 });
+
+// 选「自适应」时按窗口高度联动一个够用的码率：
+// 分辨率上去了但码率还是 2000 时，编码器会主动降分辨率，看起来反而更糊。
+watch(
+  currentResolutionRatio,
+  (val) => {
+    if (val === 0) {
+      currentMaxBitrate.value = recommendBitrate(resolveResolutionRatio(0));
+    }
+  },
+  { immediate: true }
+);
 
 onMounted(() => {
   console.log('home页面');
@@ -515,7 +530,7 @@ function handleLoopBilldDeskUpdateUserTimer() {
         receiver: receiverId.value,
         maxBitrate: currentMaxBitrate.value,
         maxFramerate: currentMaxFramerate.value,
-        resolutionRatio: currentResolutionRatio.value,
+        resolutionRatio: resolveResolutionRatio(currentResolutionRatio.value),
         videoContentHint: currentVideoContentHint.value,
         audioContentHint: currentAudioContentHint.value,
         deskUserUuid: cacheStore.deskUserUuid,
@@ -725,6 +740,20 @@ function handleWsMsg() {
         if (data.data) {
           receiverId.value = data.data.receiver;
           if (data.data.receiver === mySocketId.value) {
+            // 先把主控端传来的参数落到本地 ref，再建连：
+            // appStore.remoteDesk.set 触发的 watch 是异步的，直接 handleRTC 会用到旧值
+            // （默认 2000kbps / 1080），导致高分辨率被低码率压回去，画面糊。
+            currentMaxBitrate.value = data.data.maxBitrate;
+            currentMaxFramerate.value = data.data.maxFramerate;
+            currentResolutionRatio.value = data.data.resolutionRatio;
+            currentVideoContentHint.value = data.data.videoContentHint;
+            currentAudioContentHint.value = data.data.audioContentHint;
+            deskLog('应用主控端传来的画面参数', {
+              maxBitrate: data.data.maxBitrate,
+              maxFramerate: data.data.maxFramerate,
+              resolutionRatio: data.data.resolutionRatio,
+              videoContentHint: data.data.videoContentHint,
+            });
             appStore.remoteDesk.set(data.data.sender, {
               sender: data.data.sender,
               isClose: false,
@@ -792,6 +821,9 @@ async function handleRTC(receiver) {
       videoEl: createNullVideo(),
       deskUserUuid: cacheStore.deskUserUuid,
       remoteDeskUserUuid: cacheStore.remoteDeskUserUuid,
+      maxBitrate: currentMaxBitrate.value,
+      maxFramerate: currentMaxFramerate.value,
+      resolutionRatio: resolveResolutionRatio(currentResolutionRatio.value),
     });
     webRtcRemoteDesk.sendOffer({
       sender: mySocketId.value,
@@ -878,7 +910,7 @@ async function handleConfirm(pwd: string) {
                 receiverId: receiverId.value,
                 maxBitrate: currentMaxBitrate.value,
                 maxFramerate: currentMaxFramerate.value,
-                resolutionRatio: currentResolutionRatio.value,
+                resolutionRatio: resolveResolutionRatio(currentResolutionRatio.value),
                 audioContentHint: currentAudioContentHint.value,
                 videoContentHint: currentVideoContentHint.value,
               },
@@ -903,7 +935,7 @@ async function handleConfirm(pwd: string) {
                 receiverId: receiverId.value,
                 maxBitrate: currentMaxBitrate.value,
                 maxFramerate: currentMaxFramerate.value,
-                resolutionRatio: currentResolutionRatio.value,
+                resolutionRatio: resolveResolutionRatio(currentResolutionRatio.value),
                 audioContentHint: currentAudioContentHint.value,
                 videoContentHint: currentVideoContentHint.value,
               },

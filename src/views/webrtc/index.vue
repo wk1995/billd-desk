@@ -275,6 +275,7 @@ import {
   ipcRenderer,
   ipcRendererInvoke,
   ipcRendererSend,
+  resolveResolutionRatio,
   videoFullBox,
 } from '@/utils';
 
@@ -560,7 +561,7 @@ watch(
         msgType: WsMsgTypeEnum.changeResolutionRatio,
         data: {
           live_room_id: Number(roomId.value),
-          val: newval,
+          val: resolveResolutionRatio(newval),
         },
       });
   }
@@ -608,7 +609,7 @@ function handleLoopBilldDeskUpdateUserTimer() {
         receiver: '',
         maxBitrate: currentMaxBitrate.value,
         maxFramerate: currentMaxFramerate.value,
-        resolutionRatio: currentResolutionRatio.value,
+        resolutionRatio: resolveResolutionRatio(currentResolutionRatio.value),
         videoContentHint: currentVideoContentHint.value,
         audioContentHint: currentAudioContentHint.value,
         deskUserUuid: deskUserUuid.value,
@@ -660,7 +661,7 @@ function handleWsMsg() {
       receiver: '',
       maxBitrate: currentMaxBitrate.value,
       maxFramerate: currentMaxFramerate.value,
-      resolutionRatio: currentResolutionRatio.value,
+      resolutionRatio: resolveResolutionRatio(currentResolutionRatio.value),
       videoContentHint: currentVideoContentHint.value,
       audioContentHint: currentAudioContentHint.value,
       deskUserUuid: deskUserUuid.value,

@@ -34,26 +34,16 @@ export const useRTCParams = () => {
       value: 4000,
       disabled: false,
     },
-    // {
-    //   label: '5000',
-    //   value: 5000,
-    //   disabled: false,
-    // },
-    // {
-    //   label: '6000',
-    //   value: 6000,
-    //   disabled: false,
-    // },
-    // {
-    //   label: '7000',
-    //   value: 7000,
-    //   disabled: false,
-    // },
-    // {
-    //   label: '8000',
-    //   value: 8000,
-    //   disabled: false,
-    // },
+    {
+      label: '6000',
+      value: 6000,
+      disabled: false,
+    },
+    {
+      label: '8000',
+      value: 8000,
+      disabled: false,
+    },
   ]);
   const maxFramerate = ref([
     {
@@ -116,6 +106,12 @@ export const useRTCParams = () => {
     {
       label: '2160P',
       value: 2160,
+      disabled: false,
+    },
+    {
+      // 0 是哨兵值，发送前由 resolveResolutionRatio 换算成当前窗口匹配的具体档位
+      label: '自适应',
+      value: 0,
       disabled: false,
     },
   ]);
