@@ -779,6 +779,27 @@ function handleWsMsg() {
   );
 }
 
+/**
+ * 监听屏幕采集轨道：显示器休眠、锁屏、权限变化都可能让轨道 ended。
+ * 一旦采集停了，即使信令正常也没有画面，而且后续建连会一直失败（
+ * 表现为「再也连不上」）。这里主动重新采集，恢复后 watch(anchorStream)
+ * 会自动给所有在线会话重建 RTC。
+ */
+function watchAnchorTrack(stream: MediaStream) {
+  stream.getVideoTracks().forEach((track) => {
+    track.addEventListener('ended', () => {
+      deskLog('屏幕采集轨道已结束，重新采集', {
+        roomId: roomId.value,
+        readyState: track.readyState,
+      });
+      if (anchorStream.value === stream) {
+        anchorStream.value = undefined;
+      }
+      handleScreen({ windowId: WINDOW_ID_ENUM.remote });
+    });
+  });
+}
+
 async function handleDesktopStream(source: {
   id: string;
   width?: number;
@@ -802,6 +823,7 @@ async function handleDesktopStream(source: {
     });
     deskLog('原始屏幕采集结果', { ...stream.getVideoTracks()[0]?.getSettings() });
     anchorStream.value = stream;
+    watchAnchorTrack(stream);
   } catch (error) {
     deskLog('原始屏幕采集失败', { error: String(error) });
     window.$message.error('屏幕采集失败，请检查屏幕录制权限及采集日志');
@@ -811,6 +833,16 @@ async function handleDesktopStream(source: {
 
 async function handleRTC(receiver) {
   if (!anchorStream.value) return;
+  const videoTrack = anchorStream.value.getVideoTracks()[0];
+  if (!videoTrack || videoTrack.readyState === 'ended') {
+    deskLog('屏幕轨道已失效，重新采集后再建连', {
+      readyState: videoTrack?.readyState || 'no-track',
+      receiver,
+    });
+    anchorStream.value = undefined;
+    handleScreen({ windowId: WINDOW_ID_ENUM.remote });
+    return;
+  }
   try {
     await handlConstraints({
       frameRate: currentMaxFramerate.value,
