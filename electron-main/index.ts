@@ -1285,7 +1285,21 @@ function main() {
 
 app.on('ready', () => {
   life('app-ready');
+  // 远控工具需要长期保持可被连接：客户端运行期间必须阻止系统/显示器进入睡眠。
+  // 之前只有 IPC 接口、没有任何调用点，等于完全没有防睡眠能力。
+  // 一旦外部程序（比如 ToDesk）释放掉它自己的防睡眠断言，被控端会立刻休眠，
+  // 表现就是画面卡死、并且再也连不上。
+  try {
+    const powerSaveBlockerId =
+      powerSaveBlocker.start('prevent-display-sleep');
+    life(
+      `power-save-blocker-started id=${powerSaveBlockerId} type=prevent-display-sleep`
+    );
+  } catch (error) {
+    life(`power-save-blocker-failed ${String(error)}`);
+  }
   powerMonitor.on('suspend', () => {
+    life('power-monitor-suspend');
     windowMap.forEach((item) => {
       const windowId = item.id;
       winWebContentsSend({
@@ -1298,6 +1312,7 @@ app.on('ready', () => {
     });
   });
   powerMonitor.on('resume', () => {
+    life('power-monitor-resume');
     windowMap.forEach((item) => {
       const windowId = item.id;
       winWebContentsSend({
