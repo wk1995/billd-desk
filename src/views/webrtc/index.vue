@@ -255,6 +255,19 @@
     >
       正在连接...
     </div>
+
+    <div
+      v-if="connectTimeoutTip"
+      class="connect-timeout"
+    >
+      <div class="txt">{{ connectTimeoutTip }}</div>
+      <div
+        class="btn"
+        @click="closeSelfWindow()"
+      >
+        关闭窗口
+      </div>
+    </div>
   </div>
 </template>
 
@@ -299,6 +312,7 @@ import {
   resolveResolutionRatio,
   videoFullBox,
 } from '@/utils';
+import { deskLog } from '@/utils/desk-debug';
 
 const route = useRoute();
 const appStore = useAppStore();
@@ -444,6 +458,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearInterval(loopBilldDeskUpdateUserTimer.value);
+  clearConnectTimeout();
   videoWrapRef.value?.removeEventListener('wheel', handleMouseWheel);
   window.removeEventListener('resize', handleResize);
   window.removeEventListener('keydown', handleKeyDown);
@@ -536,6 +551,7 @@ function init() {
   handleInitIpcRendererOn();
   handleInitIpcRendererSend();
   handleLoopBilldDeskUpdateUserTimer();
+  startConnectTimeout();
   videoWrapRef.value?.addEventListener('wheel', handleMouseWheel);
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('keydown', handleKeyCombination);
@@ -674,6 +690,13 @@ function handleWsMsg() {
           hiddenCancel: true,
           hiddenClose: true,
         });
+        // 启动失败（被控端离线、密码失效等）就不要停在空白页了
+        clearConnectTimeout();
+        deskLog('远控启动失败，2 秒后自动关闭窗口', {
+          code: data.code,
+          msg: data.msg,
+        });
+        closeSelfWindow(2000);
       } else {
         if (data.data) {
           receiverId.value = data.data.receiver;
@@ -798,6 +821,55 @@ function handleClose() {
     setTimeout(() => {
       windowReload();
     }, 300);
+  }
+}
+
+/** 进入页面后迟迟没有画面时的提示文案 */
+const connectTimeoutTip = ref('');
+let connectTimeoutTimer: ReturnType<typeof setTimeout> | undefined;
+
+function clearConnectTimeout() {
+  if (connectTimeoutTimer) {
+    clearTimeout(connectTimeoutTimer);
+    connectTimeoutTimer = undefined;
+  }
+  connectTimeoutTip.value = '';
+}
+
+/** 兜底：设备离线时信令会失败或一直等不到 offer，避免停在一个空白窗口 */
+function startConnectTimeout() {
+  clearConnectTimeout();
+  connectTimeoutTimer = setTimeout(() => {
+    const videoEl = document.querySelector('video');
+    if (!videoEl || !videoEl.videoWidth) {
+      connectTimeoutTip.value = '长时间未收到画面，设备可能已离线或网络不通';
+      deskLog('连接超时：没有收到任何视频帧', {
+        roomId: roomId.value,
+        receiverId: receiverId.value || '(空)',
+      });
+    }
+  }, 12000);
+}
+
+/** 关闭当前远控窗口：Electron 关子窗口，浏览器回主页面 */
+function closeSelfWindow(delay = 0) {
+  const doClose = () => {
+    networkStore.removeAllWsAndRtc();
+    if (ipcRenderer) {
+      ipcRendererSend({
+        windowId: WINDOW_ID_ENUM.webrtc,
+        channel: IPC_EVENT.closeWindow,
+        requestId: getRandomString(8),
+        data: {},
+      });
+    } else {
+      router.replace({ name: routerName.remote });
+    }
+  };
+  if (delay > 0) {
+    setTimeout(doClose, delay);
+  } else {
+    doClose();
   }
 }
 
@@ -1222,6 +1294,29 @@ function handleMouseUp(event: MouseEvent) {
     left: 50%;
     font-size: 30px;
     transform: translate(-50%, -50%);
+  }
+  .connect-timeout {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 99;
+    min-width: 280px;
+    padding: 20px 28px;
+    text-align: center;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.78);
+    border-radius: 8px;
+    transform: translate(-50%, -50%);
+    .txt {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .btn {
+      margin-top: 14px;
+      font-size: 14px;
+      color: #ffd700;
+      cursor: pointer;
+    }
   }
 }
 </style>

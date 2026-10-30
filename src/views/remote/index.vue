@@ -900,6 +900,25 @@ async function handleConfirm(pwd: string) {
     });
     if (res.code == 200) {
       if (res.data.code === 1) {
+        // 密码框停留期间设备可能已经掉线，进远控页前再确认一次在线状态，
+        // 否则会打开一个永远没有画面的空白窗口。
+        let stillOnline = false;
+        try {
+          const alive = await fetchFindReceiverByUuid(
+            cacheStore.remoteDeskUserUuid
+          );
+          stillOnline = !!alive?.data?.receiver;
+        } catch (error) {
+          console.log(error);
+        }
+        if (!stillOnline) {
+          loading.value = false;
+          deskLog('设备已离线，取消进入远控页面', {
+            uuid: cacheStore.remoteDeskUserUuid,
+          });
+          window.$message.warning('设备已离线，已取消连接');
+          return;
+        }
         isControlOther.value = true;
         showPwdModalCpt.value = false;
         cacheStore.linkDeviceList = cacheStore.linkDeviceList.filter(
